@@ -1,12 +1,16 @@
+from django.db import transaction
 from django.db.models.signals import post_save, pre_delete
 from django.utils.translation import gettext_lazy as _
-from swapper import get_model_name, load_model
+from swapper import get_model_name
+from swapper import load_model
+from swapper import load_model as swapper_load_model
 
 from openwisp_utils.admin_theme.menu import register_menu_group
 from openwisp_utils.api.apps import ApiAppConfig
 from openwisp_utils.utils import default_or_test
 
 from . import settings as app_settings
+from .tasks import extract_firmware_metadata
 
 
 class FirmwareUpdaterConfig(ApiAppConfig):
@@ -27,6 +31,7 @@ class FirmwareUpdaterConfig(ApiAppConfig):
         self.register_menu_groups()
         self.connect_device_signals()
         self.connect_delete_signals()
+        self.connect_metadata_signals()
 
     def register_menu_groups(self):
         register_menu_group(
@@ -96,6 +101,26 @@ class FirmwareUpdaterConfig(ApiAppConfig):
             FirmwareImage.organization_pre_delete_handler,
             sender=Organization,
             dispatch_uid="organization.pre_delete.firmware_files",
+        )
+
+    def connect_metadata_signals(self):
+        FirmwareImage = load_model("firmware_upgrader", "FirmwareImage")
+
+        def trigger_extraction(sender, instance, created, **kwargs):
+            if not created:
+                return
+            Build = swapper_load_model("firmware_upgrader", "Build")
+            Build.objects.filter(pk=instance.build_id).update(
+                status=Build.BUILD_STATUS_ANALYZING
+            )
+            transaction.on_commit(
+                lambda: extract_firmware_metadata.delay(str(instance.pk))
+            )
+
+        post_save.connect(
+            trigger_extraction,
+            sender=FirmwareImage,
+            dispatch_uid="firmware_image.trigger_metadata_extraction",
         )
 
 

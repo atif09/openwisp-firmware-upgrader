@@ -70,7 +70,14 @@ class FirmwareImageSerializer(BaseSerializer):
     class Meta(BaseMeta):
         model = FirmwareImage
         fields = "__all__"
-        read_only_fields = BaseMeta.read_only_fields + ["build"]
+        read_only_fields = BaseMeta.read_only_fields + [
+            "build",
+            "extraction_status",
+            "extraction_log",
+            "failure_reason",
+            "source",
+            "compat_version",
+        ]
 
 
 class BuildSerializer(BaseSerializer):

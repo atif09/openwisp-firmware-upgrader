@@ -8,9 +8,11 @@ import swapper
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models, transaction
 from django.db.models import Q
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.functional import cached_property
 from django.utils.translation import gettext_lazy as _
+from openwisp_notifications.signals import notify
 from private_storage.fields import PrivateFileField
 
 from openwisp_controller.connection.exceptions import NoWorkingDeviceConnectionError
@@ -118,6 +120,27 @@ class AbstractBuild(TimeStampedEditableModel):
             "version, if applicable"
         ),
     )
+    BUILD_STATUS_ANALYZING = "analyzing"
+    BUILD_STATUS_SUCCESS = "success"
+    BUILD_STATUS_FAILED = "failed"
+    BUILD_STATUS_INVALID = "invalid"
+    BUILD_STATUS_MANUALLY_CONFIRMED = "manually_confirmed"
+
+    BUILD_STATUS_CHOICES = [
+        (BUILD_STATUS_ANALYZING, _("Analyzing")),
+        (BUILD_STATUS_SUCCESS, _("Success")),
+        (BUILD_STATUS_FAILED, _("Failed")),
+        (BUILD_STATUS_INVALID, _("Invalid")),
+        (BUILD_STATUS_MANUALLY_CONFIRMED, _("Manually confirmed")),
+    ]
+
+    status = models.CharField(
+        _("extraction status"),
+        max_length=20,
+        choices=BUILD_STATUS_CHOICES,
+        default=BUILD_STATUS_ANALYZING,
+        db_index=True,
+    )
 
     class Meta:
         abstract = True
@@ -157,6 +180,20 @@ class AbstractBuild(TimeStampedEditableModel):
 
     def batch_upgrade(self, firmwareless, upgrade_options=None):
         upgrade_options = upgrade_options or {}
+        unconfirmed = self.firmwareimage_set.exclude(
+            extraction_status__in=[
+                load_model("FirmwareImage").STATUS_SUCCESS,
+                load_model("FirmwareImage").STATUS_MANUALLY_CONFIRMED,
+            ]
+        )
+        if unconfirmed.exists():
+            raise ValidationError(
+                _(
+                    "All firmware images must have confirmed metadata "
+                    "before a mass upgrade can be started."
+                )
+            )
+        upgrade_options = upgrade_options or {}
         batch = load_model("BatchUpgradeOperation")(
             build=self, upgrade_options=upgrade_options
         )
@@ -166,6 +203,63 @@ class AbstractBuild(TimeStampedEditableModel):
             partial(batch_upgrade_operation.delay, batch.pk, firmwareless)
         )
         return batch
+
+    def _update_extraction_status(self):
+        FirmwareImage = load_model("FirmwareImage")
+        statuses = set(
+            FirmwareImage.objects.filter(build_id=self.pk).values_list(
+                "extraction_status", flat=True
+            )
+        )
+        if not statuses:
+            return
+        analyzing = {FirmwareImage.STATUS_UNCONFIRMED, FirmwareImage.STATUS_IN_PROGRESS}
+        if statuses & analyzing:
+            new_status = self.BUILD_STATUS_ANALYZING
+        elif FirmwareImage.STATUS_INVALID in statuses:
+            new_status = self.BUILD_STATUS_INVALID
+        elif FirmwareImage.STATUS_FAILED in statuses:
+            new_status = self.BUILD_STATUS_FAILED
+        elif FirmwareImage.STATUS_MANUALLY_CONFIRMED in statuses:
+            new_status = self.BUILD_STATUS_MANUALLY_CONFIRMED
+        else:
+            new_status = self.BUILD_STATUS_SUCCESS
+        if new_status == self.status:
+            return
+        old_status = self.status
+        load_model("Build").objects.filter(pk=self.pk).update(status=new_status)
+        self.status = new_status
+        if old_status == self.BUILD_STATUS_ANALYZING:
+            self._notify_extraction_complete(new_status)
+
+    def _notify_extraction_complete(self, new_status):
+        level = (
+            "info"
+            if new_status
+            in (self.BUILD_STATUS_SUCCESS, self.BUILD_STATUS_MANUALLY_CONFIRMED)
+            else "warning"
+        )
+        status_display = dict(self.BUILD_STATUS_CHOICES)[new_status]
+        try:
+            admin_url = reverse(
+                "admin:firmware_upgrader_build_change",
+                args=[str(self.pk)],
+            )
+            message = (
+                f"Metadata extraction for build "
+                f'"<a href="{admin_url}">{self}</a>" completed '
+                f"with status: {status_display}."
+            )
+            notify.send(
+                sender=self,
+                type="generic_message",
+                level=level,
+                url=admin_url,
+                target=self,
+                message=message,
+            )
+        except Exception:
+            logger.exception("Failed to send build extraction completion notification")
 
     def _find_related_device_firmwares(self, select_devices=False):
         """
@@ -208,6 +302,20 @@ def get_build_directory(instance, filename):
     return "/".join([build_pk, filename])
 
 
+_INVALID_HEADERS = [
+    (b"\xff\xd8\xff", "JPEG image"),
+    (b"\x89PNG\r\n\x1a\n", "PNG image"),
+    (b"%PDF", "PDF document"),
+    (b"GIF87a", "GIF image"),
+    (b"GIF89a", "GIF image"),
+    (b"PK\x03\x04", "ZIP archive"),
+    (b"MZ", "Windows executable"),
+    (b"<html", "HTML file"),
+    (b"<!DOC", "HTML document"),
+    (b"<?xml", "XML file"),
+]
+
+
 class AbstractFirmwareImage(TimeStampedEditableModel):
     build = models.ForeignKey(get_model_name("Build"), on_delete=models.CASCADE)
     file = PrivateFileField(
@@ -228,6 +336,56 @@ class AbstractFirmwareImage(TimeStampedEditableModel):
         ),
     )
 
+    STATUS_UNCONFIRMED = "unconfirmed"
+    STATUS_IN_PROGRESS = "in_progress"
+    STATUS_SUCCESS = "success"
+    STATUS_FAILED = "failed"
+    STATUS_MANUAL = "manual"
+    STATUS_MANUALLY_CONFIRMED = "manually_confirmed"
+    STATUS_INVALID = "invalid"
+
+    EXTRACTION_STATUS_CHOICES = [
+        (STATUS_UNCONFIRMED, _("Unconfirmed")),
+        (STATUS_IN_PROGRESS, _("In Progress")),
+        (STATUS_SUCCESS, _("Success")),
+        (STATUS_FAILED, _("Failed")),
+        (STATUS_MANUAL, _("Manual")),
+        (STATUS_MANUALLY_CONFIRMED, _("Manually Confirmed")),
+        (STATUS_INVALID, _("Invalid")),
+    ]
+
+    LOCKED_STATUSES = (STATUS_SUCCESS, STATUS_MANUALLY_CONFIRMED)
+
+    FAILURE_UNSUPPORTED = "unsupported_format"
+    FAILURE_OOM = "out_of_memory"
+    FAILURE_INVALID = "invalid_file"
+
+    FAILURE_REASON_CHOICES = [
+        (FAILURE_UNSUPPORTED, _("Unsupported format")),
+        (FAILURE_OOM, _("Out of memory")),
+        (FAILURE_INVALID, _("Invalid file")),
+    ]
+
+    extraction_status = models.CharField(
+        max_length=20,
+        choices=EXTRACTION_STATUS_CHOICES,
+        default=STATUS_UNCONFIRMED,
+        db_index=True,
+    )
+    extraction_log = models.TextField(blank=True)
+    failure_reason = models.CharField(
+        max_length=20,
+        choices=FAILURE_REASON_CHOICES,
+        blank=True,
+        default="",
+    )
+    board = models.CharField(max_length=200, blank=True)
+    compatible = models.JSONField(default=list, blank=True)
+    target = models.CharField(max_length=100, blank=True)
+    fw_version = models.CharField(max_length=50, blank=True)
+    compat_version = models.CharField(max_length=10, blank=True)
+    source = models.CharField(max_length=20, blank=True)
+
     class Meta:
         abstract = True
         verbose_name = _("Firmware Image")
@@ -235,9 +393,10 @@ class AbstractFirmwareImage(TimeStampedEditableModel):
         unique_together = ("build", "type")
 
     def __str__(self):
-        if hasattr(self, "build") and self.type:
-            return f"{self.build}: {self.get_type_display()}"
-        return super().__str__()
+        try:
+            return f"{self.build} / {self.type or self.file.name.split('/')[-1]}"
+        except Exception:
+            return super().__str__()
 
     @property
     def boards(self):
@@ -245,10 +404,69 @@ class AbstractFirmwareImage(TimeStampedEditableModel):
 
     def clean(self):
         self._clean_type()
+        self._validate_locked()
+        self._validate_file_header()
+        self._validate_rootfs()
+
+    def _validate_locked(self):
+        if not self.pk or self.extraction_status not in self.LOCKED_STATUSES:
+            return
+        original = (
+            self.__class__.objects.filter(pk=self.pk)
+            .values(
+                "board",
+                "compatible",
+                "target",
+                "fw_version",
+                "compat_version",
+                "source",
+            )
+            .first()
+        )
+        if not original:
+            return
+        for field in (
+            "board",
+            "compatible",
+            "target",
+            "fw_version",
+            "compat_version",
+            "source",
+        ):
+            original_val = original[field]
+            if original_val and getattr(self, field) != original_val:
+                raise ValidationError(
+                    _("Metadata fields are read-only after confirmation.")
+                )
+
+    def _validate_file_header(self):
+        if not self.file:
+            return
         try:
-            self.boards
-        except KeyError:
-            raise ValidationError({"type": "Could not find boards for this type"})
+            self.file.seek(0)
+            header = self.file.read(16)
+            self.file.seek(0)
+        except Exception:
+            return
+        for magic, file_type in _INVALID_HEADERS:
+            if header[: len(magic)] == magic:
+                raise ValidationError(
+                    _(
+                        f"This file appears to be a {file_type}, not a firmware "
+                        "image. Please upload a valid OpenWrt firmware image."
+                    )
+                )
+
+    def _validate_rootfs(self):
+        if not self.file or not self.file.name:
+            return
+        if self.file.name.lower().endswith("-rootfs.img"):
+            raise ValidationError(
+                _(
+                    "rootfs images (*-squashfs-rootfs.img) are not suitable for "
+                    "upgrades. Please upload a sysupgrade image instead."
+                )
+            )
 
     def delete(self, *args, **kwargs):
         super().delete(*args, **kwargs)
@@ -380,6 +598,17 @@ class AbstractDeviceFirmware(TimeStampedEditableModel):
         if self.device.model not in self.image.boards:
             raise ValidationError(_("Device model and image model do not match"))
 
+        if self.image.extraction_status not in self.image.LOCKED_STATUSES:
+            raise ValidationError(
+                {
+                    "image": _(
+                        "This firmware image has not been confirmed yet."
+                        "Metadata extraction must complete successfully"
+                        "before it can be used for upgrades"
+                    )
+                }
+            )
+
     @property
     def image_has_changed(self):
         return self._state.adding or self.image_id != self._old_image.id
@@ -463,9 +692,12 @@ class AbstractDeviceFirmware(TimeStampedEditableModel):
     @classmethod
     def auto_create_device_firmwares(cls, instance, created, **kwargs):
         if created:
-            transaction.on_commit(
-                partial(create_all_device_firmwares.delay, instance.pk)
-            )
+            return
+        # only auto pair confirmed images. Unconfirmed images will trigger
+        # pairing later when extraction completes successfully
+        if instance.extraction_status not in instance.LOCKED_STATUSES:
+            return
+        transaction.on_commit(partial(create_all_device_firmwares.delay, instance.pk))
 
     @classmethod
     def get_image_queryset_for_device(cls, device, device_firmware=None):

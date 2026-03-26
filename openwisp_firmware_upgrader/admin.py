@@ -45,6 +45,45 @@ Build = load_model("Build")
 Device = swapper.load_model("config", "Device")
 DeviceConnection = swapper.load_model("connection", "DeviceConnection")
 
+_STATUS_CONFIG = {
+    "unconfirmed": {"label": _("unconfirmed"), "class": "ow-status-grey"},
+    "in_progress": {"label": _("in progress"), "class": "ow-status-warning"},
+    "success": {"label": _("success"), "class": "ow-status-success"},
+    "failed": {"label": _("failed"), "class": "ow-status-error"},
+    "manual": {"label": _("manual"), "class": "ow-status-warning"},
+    "manually_confirmed": {
+        "label": _("manually confirmed"),
+        "class": "ow-status-success",
+    },
+    "invalid": {"label": _("invalid"), "class": "ow-status-error"},
+}
+
+_BUILD_STATUS_CONFIG = {
+    Build.BUILD_STATUS_ANALYZING: ("info", "Analyzing"),
+    Build.BUILD_STATUS_SUCCESS: ("success", "Success"),
+    Build.BUILD_STATUS_FAILED: ("error", "Failed"),
+    Build.BUILD_STATUS_INVALID: ("error", "Invalid"),
+    Build.BUILD_STATUS_MANUALLY_CONFIRMED: ("ok", "Manually confirmed"),
+}
+
+_FAILURE_REASON_TEXT = {
+    "unsupported_format": _(
+        "Both fwtool and DTB scan were unable to extract metadata. "
+        "Fill in the Device Metadata fields below manually."
+    ),
+    "out_of_memory": _("Decompression exceeded the configured size or ratio limit."),
+    "invalid_file": _("This file was rejected as an invalid firmware image."),
+}
+
+
+def _extraction_status_badge(status):
+    cfg = _STATUS_CONFIG.get(status, {"label": status, "class": "ow-status-grey"})
+    return format_html(
+        '<span class="ow-status-badge {}">{}</span>',
+        cfg["class"],
+        cfg["label"],
+    )
+
 
 class BaseAdmin(MultitenantAdminMixin, TimeReadonlyAdminMixin, admin.ModelAdmin):
     save_on_top = True
@@ -67,6 +106,11 @@ class CategoryAdmin(BaseVersionAdmin):
 class FirmwareImageInline(TimeReadonlyAdminMixin, admin.StackedInline):
     model = FirmwareImage
     extra = 0
+    readonly_fields = ["created", "modified", "extraction_status_display"]
+
+    @admin.display(description=_("Extraction Status"))
+    def extraction_status_display(self, obj):
+        return _extraction_status_badge(obj.extraction_status)
 
     class Media:
         extra = "" if getattr(settings, "DEBUG", False) else ".min"
@@ -93,6 +137,142 @@ class FirmwareImageInline(TimeReadonlyAdminMixin, admin.StackedInline):
         return True
 
 
+@admin.register(FirmwareImage)
+class FirmwareImageAdmin(BaseAdmin):
+    change_form_template = "admin/firmware_upgrader/firmwareimage_change_form.html"
+    list_display = [
+        "__str__",
+        "build",
+        "type",
+        "extraction_status_display",
+        "created",
+        "modified",
+    ]
+    list_filter = ["extraction_status", "build__category"]
+    search_fields = ["board", "target", "type"]
+    ordering = ["-created"]
+    actions = ["re_extract_metadata"]
+    readonly_fields = [
+        "created",
+        "modified",
+        "extraction_status_display",
+        "failure_reason_display",
+        "extraction_log_display",
+        "source",
+    ]
+    fieldsets = [
+        (
+            None,
+            {
+                "fields": ["build", "file", "type", "created", "modified"],
+            },
+        ),
+        (
+            _("Extraction Status"),
+            {
+                "fields": [
+                    "extraction_status_display",
+                    "failure_reason_display",
+                    "extraction_log_display",
+                ],
+                "description": _(
+                    "Metadata is extracted automatically on upload using fwtool "
+                    "(primary) and DTB scan (fallback). "
+                    "If both fail, fill in the fields below manually."
+                ),
+            },
+        ),
+        (
+            _("Device Metadata"),
+            {
+                "fields": [
+                    "board",
+                    "compatible",
+                    "target",
+                    "fw_version",
+                    "compat_version",
+                    "source",
+                ],
+            },
+        ),
+    ]
+
+    def get_readonly_fields(self, request, obj=None):
+        readonly = list(self.readonly_fields)
+        if obj and obj.extraction_status in obj.LOCKED_STATUSES:
+            if obj.board:
+                readonly.append("board")
+            if obj.compatible:
+                readonly.append("compatible")
+            if obj.target:
+                readonly.append("target")
+            if obj.fw_version:
+                readonly.append("fw_version")
+            if obj.compat_version:
+                readonly.append("compat_version")
+        if obj and obj.extraction_status == FirmwareImage.STATUS_INVALID:
+            readonly += [
+                "board",
+                "compatible",
+                "target",
+                "fw_version",
+                "compat_version",
+            ]
+        return readonly
+
+    @admin.display(description=_("Extraction Status"))
+    def extraction_status_display(self, obj):
+        return _extraction_status_badge(obj.extraction_status)
+
+    @admin.display(description=_("Failure Reason"))
+    def failure_reason_display(self, obj):
+        if not obj.failure_reason:
+            return "—"
+        return _FAILURE_REASON_TEXT.get(obj.failure_reason, obj.failure_reason)
+
+    @admin.display(description=_("Extraction Log"))
+    def extraction_log_display(self, obj):
+        if not obj.extraction_log:
+            return "—"
+        return format_html(
+            '<pre style="white-space: pre-wrap;">{}</pre>',
+            obj.extraction_log,
+        )
+
+    def save_model(self, request, obj, form, change):
+        if obj.compatible is None:
+            obj.compatible = []
+        if change and obj.extraction_status == FirmwareImage.STATUS_FAILED:
+            if any([obj.board, obj.target, obj.fw_version]):
+                if "_confirm" in request.POST:
+                    obj.extraction_status = FirmwareImage.STATUS_MANUALLY_CONFIRMED
+                else:
+                    obj.extraction_status = FirmwareImage.STATUS_MANUAL
+                obj.source = "manual"
+        super().save_model(request, obj, form, change)
+
+    @admin.action(description=_("Re-extract metadata from selected images"))
+    def re_extract_metadata(self, request, queryset):
+        from .tasks import extract_firmware_metadata
+
+        queryset.update(
+            extraction_status=FirmwareImage.STATUS_UNCONFIRMED,
+            extraction_log="",
+            failure_reason="",
+            board="",
+            compatible=[],
+            target="",
+            fw_version="",
+            source="",
+        )
+        for pk in queryset.values_list("pk", flat=True):
+            extract_firmware_metadata.delay(pk)
+        self.message_user(
+            request,
+            _(f"Re-extraction triggered for {queryset.count()} image(s)."),
+        )
+
+
 class BatchUpgradeConfirmationForm(forms.ModelForm):
     upgrade_options = forms.JSONField(widget=FirmwareSchemaWidget(), required=False)
     build = forms.ModelChoiceField(
@@ -114,7 +294,14 @@ class BatchUpgradeConfirmationForm(forms.ModelForm):
 
 @admin.register(load_model("Build"))
 class BuildAdmin(BaseAdmin):
-    list_display = ["__str__", "organization", "category", "created", "modified"]
+    list_display = [
+        "__str__",
+        "organization",
+        "category",
+        "build_status_display",
+        "created",
+        "modified",
+    ]
     list_filter = [CategoryOrganizationFilter, CategoryFilter]
     list_select_related = ["category", "category__organization"]
     search_fields = ["category__name", "version", "os"]
@@ -131,6 +318,15 @@ class BuildAdmin(BaseAdmin):
         return obj.category.organization
 
     organization.short_description = _("organization")
+
+    @admin.display(description=_("Extraction status"))
+    def build_status_display(self, obj):
+        css, label = _BUILD_STATUS_CONFIG.get(obj.status, ("info", obj.status))
+        return format_html(
+            '<span class="ow-status-badge ow-status-{}">{}</span>',
+            css,
+            label,
+        )
 
     @admin.action(
         description=_("Mass-upgrade devices related to the selected build"),
