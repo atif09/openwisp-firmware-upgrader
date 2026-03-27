@@ -75,6 +75,10 @@ fires when the build transitions out of `analyzing`.
 
 ---
 
+## Demo
+
+https://github.com/user-attachments/assets/302d1882-b77c-4870-88a3-31882a5822df
+
 ## Results
 
 Successful extraction
