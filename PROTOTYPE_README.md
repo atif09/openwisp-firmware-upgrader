@@ -77,7 +77,22 @@ fires when the build transitions out of `analyzing`.
 
 ## Demo
 
-https://github.com/user-attachments/assets/302d1882-b77c-4870-88a3-31882a5822df
+
+
+
+fwtool extraction:
+
+
+https://github.com/user-attachments/assets/f0b3e8a4-073c-4084-81e5-7ea8fff3b087
+
+
+
+DTB extraction:
+
+
+https://github.com/user-attachments/assets/fddef30c-3989-446a-9d95-16cf50ca48ac
+
+
 
 ## Results
 
