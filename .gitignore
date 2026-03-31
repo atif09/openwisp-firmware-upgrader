@@ -71,3 +71,5 @@ Pipfile
 
 # celery
 tests/celerybeat*
+
+.firmware_cache/

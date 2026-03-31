@@ -3,3 +3,5 @@ django-redis~=6.0.0
 mock-ssh-server~=0.9.1
 responses~=0.25.8
 psycopg2-binary~=2.9.11
+fdt>=0.3
+lz4>=4.0.0
