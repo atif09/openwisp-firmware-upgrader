@@ -220,6 +220,12 @@ def _prop_strlist(value) -> list:
     return [str(value)]
 
 
+def _parse_supported_devices(meta):
+    if meta.get('compat_version', '1.0') != '1.0':
+        return meta.get('new_supported_devices', [])
+    return meta.get('supported_devices', [])
+
+
 def _metadata_from_dtb(dtb_bytes: bytes) -> dict:
     dt = fdt.parse_dtb(dtb_bytes)
     root = dt.get_node("/")
@@ -262,10 +268,7 @@ class OpenWrtMetadataExtractor(BaseMetadataExtractor):
             ) from exc
 
         version = meta.get("version", {})
-        compatible = meta.get("new_supported_devices") or meta.get(
-            "supported_devices", []
-        )
-        compatible = [s.split(" - ")[0].strip() for s in compatible]
+        compatible = _parse_supported_devices(meta)
         return {
             "model": version.get("board", ""),
             "compatible": compatible,

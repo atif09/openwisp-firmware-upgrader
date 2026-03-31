@@ -193,7 +193,6 @@ class AbstractBuild(TimeStampedEditableModel):
                     "before a mass upgrade can be started."
                 )
             )
-        upgrade_options = upgrade_options or {}
         batch = load_model("BatchUpgradeOperation")(
             build=self, upgrade_options=upgrade_options
         )

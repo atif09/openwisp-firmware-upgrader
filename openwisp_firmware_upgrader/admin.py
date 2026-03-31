@@ -240,8 +240,6 @@ class FirmwareImageAdmin(BaseAdmin):
         )
 
     def save_model(self, request, obj, form, change):
-        if obj.compatible is None:
-            obj.compatible = []
         if change and obj.extraction_status == FirmwareImage.STATUS_FAILED:
             if any([obj.board, obj.target, obj.fw_version]):
                 if "_confirm" in request.POST:
