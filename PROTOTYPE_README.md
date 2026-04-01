@@ -76,7 +76,7 @@ run synchronously. If both pass, the file is saved with
 
 ### Manual Takeover
 
-On failure, metadata fields are unlocked in the admin. The operator fills them in and saves. `save_model()` transitions the sstatus to manually_confirmed. Once the image reaches `success` or `manually confirmed`, all metadata fields become read-only.
+On failure, metadata fields are unlocked in the admin. The operator fills them in and saves. `save_model()` transitions the status to manually_confirmed. Once the image reaches `success` or `manually confirmed`, all metadata fields become read-only.
 
 ### Build-Level Status
 
