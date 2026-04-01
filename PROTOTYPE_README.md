@@ -46,9 +46,7 @@ run synchronously. If both pass, the file is saved with
 
 ### Manual Takeover
 
-On failure, metadata fields are unlocked in the admin. The operator fills
-them in and saves. `save_model()` transitions the status directly to
-`manually_confirmed`. Once confirmed, all fields become read-only.
+On failure, metadata fields are unlocked in the admin. The operator fills them in and saves. `save_model()` transitions the sstatus to manually_confirmed. Once the image reaches `success` or `manually confirmed`, all metadata fields become read-only.
 
 ### Build-Level Status
 
@@ -61,19 +59,18 @@ fires when the build transitions out of `analyzing`.
 
 ## Core File Modifications
 
-| File                                           | Change                                                                                                                                                                            |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `base/models.py`                               | Extraction status fields on `FirmwareImage`, build-level `status` field on `AbstractBuild`, `_update_extraction_status()` aggregate, `_notify_extraction_complete()` notification |
-| `extractors/base.py`                           | `BaseMetadataExtractor` ABC with pluggable `extract()`, `extract_from_image()`, `extract_from_dtb()`                                                                              |
-| `extractors/openwrt.py`                        | `OpenWrtMetadataExtractor` — fwtool primary path, DTB fallback, chunked decompression with `_check_limits()`                                                                      |
-| `extractors/exceptions.py`                     | `ExtractionError`, `UnsupportedImageError`, `DecompressionLimitExceeded`                                                                                                          |
-| `tasks.py`                                     | `extract_firmware_metadata` Celery task, state machine, `_compat_blocks_pairing()` guard                                                                                          |
-| `admin.py`                                     | `FirmwareImageAdmin` with `get_readonly_fields()`, `save_model()`, status badges, `re_extract_metadata` action                                                                    |
-| `templates/.../firmwareimage_change_form.html` | Auto-refresh JS snippet when `extraction_status == in_progress`                                                                                                                   |
-| `api/serializers.py`                           | Extraction fields marked read-only in `FirmwareImageSerializer`                                                                                                                   |
-| `settings.py`                                  | `MAX_KERNEL_BYTES`, `MAX_DECOMPRESSED_BYTES`, `MAX_DECOMPRESSED_RATIO` settings                                                                                                   |
-
----
+| File | Change |
+|------|--------|
+| `base/models.py` | Extraction status fields on `FirmwareImage`, build-level `status` field on `AbstractBuild`, `_update_extraction_status()` aggregate, `_notify_extraction_complete()` notification |
+| `extractors/base.py` | `BaseMetadataExtractor` ABC with pluggable `extract()`, `extract_from_image()`, `extract_from_dtb()` |
+| `extractors/openwrt.py` | `OpenWrtMetadataExtractor` — fwtool primary path, DTB fallback, chunked decompression with `_check_limits()` |
+| `extractors/exceptions.py` | `ExtractionError`, `UnsupportedImageError`, `DecompressionLimitExceeded` |
+| `tasks.py` | `extract_firmware_metadata` Celery task, state machine, `_compat_blocks_pairing()` guard |
+| `admin.py` | `FirmwareImageAdmin` with `get_readonly_fields()`, `save_model()`, status badges, `re_extract_metadata` action; `BuildAdmin` with build status display |
+| `static/.../build.js` | Auto-refresh polling for list and change form pages; suppressed on Build change form |
+| `api/serializers.py` | Extraction fields marked read-only in `FirmwareImageSerializer` |
+| `settings.py` | `OPENWISP_FIRMWARE_UPGRADER_MAX_DECOMPRESSED_BYTES`, `OPENWISP_FIRMWARE_UPGRADER_MAX_DECOMPRESSED_RATIO` settings |
+                                                                                                                                            
 
 ## Demo
 
@@ -117,7 +114,7 @@ Notifications
 - **Manual takeover**: operator fills in metadata after failure, status
   transitions to `manually_confirmed` on save.
 - **Field locking**: metadata fields become read-only after `success` or
-  `manually_confirmed` at both model and admin level.
+  `manually_confirmed` at admin level.
 - **Build-level status**: build blocks mass upgrades until all images are
   confirmed. Adding a new image resets status to `analyzing`.
 - **Notifications**: `generic_notification` sent on extraction failure
