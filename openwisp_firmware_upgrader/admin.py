@@ -199,18 +199,12 @@ class FirmwareImageAdmin(BaseAdmin):
 
     def get_readonly_fields(self, request, obj=None):
         readonly = list(self.readonly_fields)
-        if obj and obj.extraction_status in obj.LOCKED_STATUSES:
-            if obj.board:
-                readonly.append("board")
-            if obj.compatible:
-                readonly.append("compatible")
-            if obj.target:
-                readonly.append("target")
-            if obj.fw_version:
-                readonly.append("fw_version")
-            if obj.compat_version:
-                readonly.append("compat_version")
-        if obj and obj.extraction_status == FirmwareImage.STATUS_INVALID:
+        if obj and obj.extraction_status in (
+            FirmwareImage.STATUS_IN_PROGRESS,
+            FirmwareImage.STATUS_INVALID,
+            FirmwareImage.STATUS_SUCCESS,
+            FirmwareImage.STATUS_MANUALLY_CONFIRMED,
+        ):
             readonly += [
                 "board",
                 "compatible",

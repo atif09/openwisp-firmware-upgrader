@@ -221,9 +221,9 @@ def _prop_strlist(value) -> list:
 
 
 def _parse_supported_devices(meta):
-    if meta.get('compat_version', '1.0') != '1.0':
-        return meta.get('new_supported_devices', [])
-    return meta.get('supported_devices', [])
+    if meta.get("compat_version", "1.0") != "1.0":
+        return meta.get("new_supported_devices", [])
+    return meta.get("supported_devices", [])
 
 
 def _metadata_from_dtb(dtb_bytes: bytes) -> dict:
