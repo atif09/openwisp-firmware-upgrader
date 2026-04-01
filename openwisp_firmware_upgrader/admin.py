@@ -32,6 +32,7 @@ from .filters import (
     CategoryOrganizationFilter,
 )
 from .swapper import load_model
+from .tasks import extract_firmware_metadata
 from .utils import get_upgrader_schema_for_device
 from .widgets import FirmwareSchemaWidget
 
@@ -139,7 +140,6 @@ class FirmwareImageInline(TimeReadonlyAdminMixin, admin.StackedInline):
 
 @admin.register(FirmwareImage)
 class FirmwareImageAdmin(BaseAdmin):
-    change_form_template = "admin/firmware_upgrader/firmwareimage_change_form.html"
     list_display = [
         "__str__",
         "build",
@@ -237,6 +237,18 @@ class FirmwareImageAdmin(BaseAdmin):
         )
 
     def save_model(self, request, obj, form, change):
+        if change and "file" in form.changed_data:
+            obj.extraction_status = FirmwareImage.STATUS_UNCONFIRMED
+            obj.extraction_log = ""
+            obj.failure_reason = ""
+            obj.board = ""
+            obj.compatible = []
+            obj.target = ""
+            obj.fw_version = ""
+            obj.source = ""
+            super().save_model(request, obj, form, change)
+            extract_firmware_metadata.delay(obj.pk)
+            return
         if change and obj.extraction_status == FirmwareImage.STATUS_FAILED:
             if any([obj.board, obj.target, obj.fw_version]):
                 if "_confirm" in request.POST:
