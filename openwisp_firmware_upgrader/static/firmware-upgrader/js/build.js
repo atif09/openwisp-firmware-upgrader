@@ -8,4 +8,12 @@ django.jQuery(function ($) {
   }
   $(".add-row > a").click(initSelect2);
   initSelect2();
+
+  var needsPolling =
+    $(".ow-status-badge.ow-status-info, .ow-status-badge.ow-status-warning").length > 0;
+  if (needsPolling) {
+    setTimeout(function () {
+      location.reload();
+    }, 5000);
+  }
 });

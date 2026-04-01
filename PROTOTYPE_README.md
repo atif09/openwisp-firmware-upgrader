@@ -61,38 +61,29 @@ fires when the build transitions out of `analyzing`.
 
 ## Core File Modifications
 
-| File | Change |
-|------|--------|
-| `base/models.py` | Extraction status fields on `FirmwareImage`, build-level `status` field on `AbstractBuild`, `_update_extraction_status()` aggregate, `_notify_extraction_complete()` notification |
-| `extractors/base.py` | `BaseMetadataExtractor` ABC with pluggable `extract()`, `extract_from_image()`, `extract_from_dtb()` |
-| `extractors/openwrt.py` | `OpenWrtMetadataExtractor` — fwtool primary path, DTB fallback, chunked decompression with `_check_limits()` |
-| `extractors/exceptions.py` | `ExtractionError`, `UnsupportedImageError`, `DecompressionLimitExceeded` |
-| `tasks.py` | `extract_firmware_metadata` Celery task, state machine, `_compat_blocks_pairing()` guard |
-| `admin.py` | `FirmwareImageAdmin` with `get_readonly_fields()`, `save_model()`, status badges, `re_extract_metadata` action |
-| `templates/.../firmwareimage_change_form.html` | Auto-refresh JS snippet when `extraction_status == in_progress` |
-| `api/serializers.py` | Extraction fields marked read-only in `FirmwareImageSerializer` |
-| `settings.py` | `MAX_KERNEL_BYTES`, `MAX_DECOMPRESSED_BYTES`, `MAX_DECOMPRESSED_RATIO` settings |
+| File                                           | Change                                                                                                                                                                            |
+| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `base/models.py`                               | Extraction status fields on `FirmwareImage`, build-level `status` field on `AbstractBuild`, `_update_extraction_status()` aggregate, `_notify_extraction_complete()` notification |
+| `extractors/base.py`                           | `BaseMetadataExtractor` ABC with pluggable `extract()`, `extract_from_image()`, `extract_from_dtb()`                                                                              |
+| `extractors/openwrt.py`                        | `OpenWrtMetadataExtractor` — fwtool primary path, DTB fallback, chunked decompression with `_check_limits()`                                                                      |
+| `extractors/exceptions.py`                     | `ExtractionError`, `UnsupportedImageError`, `DecompressionLimitExceeded`                                                                                                          |
+| `tasks.py`                                     | `extract_firmware_metadata` Celery task, state machine, `_compat_blocks_pairing()` guard                                                                                          |
+| `admin.py`                                     | `FirmwareImageAdmin` with `get_readonly_fields()`, `save_model()`, status badges, `re_extract_metadata` action                                                                    |
+| `templates/.../firmwareimage_change_form.html` | Auto-refresh JS snippet when `extraction_status == in_progress`                                                                                                                   |
+| `api/serializers.py`                           | Extraction fields marked read-only in `FirmwareImageSerializer`                                                                                                                   |
+| `settings.py`                                  | `MAX_KERNEL_BYTES`, `MAX_DECOMPRESSED_BYTES`, `MAX_DECOMPRESSED_RATIO` settings                                                                                                   |
 
 ---
 
 ## Demo
 
-
-
-
 fwtool extraction:
-
 
 https://github.com/user-attachments/assets/f0b3e8a4-073c-4084-81e5-7ea8fff3b087
 
-
-
 DTB extraction:
 
-
 https://github.com/user-attachments/assets/fddef30c-3989-446a-9d95-16cf50ca48ac
-
-
 
 ## Results
 
@@ -103,11 +94,12 @@ Failed with manual input form
 <img width="1020" height="600" alt="image" src="https://github.com/user-attachments/assets/9a9a3094-8859-4347-bd0c-8dc952a799c2" />
 
 Notifications
+
 > On success
-<img width="889" height="137" alt="image" src="https://github.com/user-attachments/assets/22f166f6-41e9-41be-b90b-aa56ac454d01" />
+> <img width="889" height="137" alt="image" src="https://github.com/user-attachments/assets/22f166f6-41e9-41be-b90b-aa56ac454d01" />
 
 > On failures/warnings
-<img width="887" height="288" alt="image" src="https://github.com/user-attachments/assets/74a81172-7318-493e-a66e-f3705243d0e1" />
+> <img width="887" height="288" alt="image" src="https://github.com/user-attachments/assets/74a81172-7318-493e-a66e-f3705243d0e1" />
 
 ---
 
@@ -116,8 +108,8 @@ Notifications
 - **Upload validation**: JPEG, PNG, PDF, ZIP, and executable files rejected
   immediately via magic bytes check. `*-squashfs-rootfs.img` rejected by
   filename.
-- **fwtool extraction**: board, compatible, target, fw\_version,
-  compat\_version populated automatically on sysupgrade images.
+- **fwtool extraction**: board, compatible, target, fw_version,
+  compat_version populated automatically on sysupgrade images.
 - **DTB fallback**: board and compatible extracted from FIT and sdcard
   images where fwtool finds no trailer (ipq40xx, sunxi).
 - **Graceful failure**: x86 and armsr fail cleanly to

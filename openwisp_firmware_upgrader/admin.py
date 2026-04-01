@@ -197,6 +197,9 @@ class FirmwareImageAdmin(BaseAdmin):
         ),
     ]
 
+    class Media:
+        js = ["admin/js/jquery.init.js", "firmware-upgrader/js/build.js"]
+
     def get_readonly_fields(self, request, obj=None):
         readonly = list(self.readonly_fields)
         if obj and obj.extraction_status in (
@@ -302,6 +305,9 @@ class BuildAdmin(BaseAdmin):
     actions = ["upgrade_selected"]
     multitenant_parent = "category"
     autocomplete_fields = ["category"]
+
+    class Media:
+        js = ["admin/js/jquery.init.js", "firmware-upgrader/js/build.js"]
 
     # Allows apps that extend this modules to use this template with less hacks
     change_form_template = "admin/firmware_upgrader/change_form.html"
