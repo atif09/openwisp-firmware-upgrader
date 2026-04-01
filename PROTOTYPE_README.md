@@ -18,6 +18,34 @@ metadata is verified.
 
 ---
 
+## Prerequisites
+
+To run the prototype end-to-end, ensure the following are installed:
+
+- **`fwtool`**: system binary used for primary metadata extraction. Install via your package manager (e.g. `apt install fwtool` on Debian/Ubuntu).
+- **Python packages**: install requirements which include `fdt` and `lz4`:
+
+```
+pip install -r requirements-test.txt
+```
+
+## How to Run Locally
+
+```bash
+git clone https://github.com/atif09/openwisp-firmware-upgrader.git
+cd openwisp-firmware-upgrader
+git checkout automatic-metadata-fwtool-dtb-extraction
+pip install -e .
+pip install -r requirements-test.txt
+apt install fwtool  # or equivalent for your OS
+```
+
+For starting the dev server and Celery worker, follow the [developer installation docs](https://openwisp.io/docs/stable/firmware-upgrader/developer/installation.html).
+
+Then go to `http://127.0.0.1:8000/admin/`, create a build first (if not already present), then go to the `Firmware` section in the sidebar, click on `Builds`, click on your build, add a Firmware Image, the extraction will run in the background.
+
+---
+
 ## How It Works: The Lifecycle
 
 The system uses an asynchronous, signal-driven architecture to handle
