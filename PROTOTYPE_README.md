@@ -5,6 +5,8 @@ for the firmware metadata extraction prototype. These changes allow
 OpenWISP Firmware Upgrader to automatically extract metadata from OpenWrt
 firmware images at upload time, eliminating manual metadata entry.
 
+[The full demo video](https://www.youtube.com/watch?v=xE0rsab_nNQ)
+
 ---
 
 ## Overview of Changes
