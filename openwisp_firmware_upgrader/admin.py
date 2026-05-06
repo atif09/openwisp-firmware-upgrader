@@ -260,7 +260,6 @@ class FirmwareImageAdmin(BaseAdmin):
 
     @admin.action(description=_("Re-extract metadata from selected images"))
     def re_extract_metadata(self, request, queryset):
-        from .tasks import extract_firmware_metadata
 
         queryset.update(
             extraction_status=FirmwareImage.STATUS_UNCONFIRMED,
